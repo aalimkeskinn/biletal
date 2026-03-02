@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 import datetime
 import os
+from urllib.parse import quote_plus
 from curl_cffi import requests as cf_requests
 
 # ============================================================
@@ -62,41 +63,40 @@ def notify(title, text):
 
 # ── PASSO API (DOĞRUDAN BİLET SATIŞ EKRANI) ──
 def check_passo():
-    """Passo API üzerinden anlık satışta olan etkinlikleri kontrol eder."""
+    """Passo ana sayfasını Playwright ile render edip anlık satışta olan etkinlikleri kontrol eder."""
     found_any = False
-    print(f"[{now()}] 🎫 Passo API (Direkt Satış) kontrol ediliyor...")
-    session = cf_requests.Session(impersonate="chrome120")
+    print(f"[{now()}] 🎫 Passo UI (Direkt Satış) kontrol ediliyor...")
 
-    for query in PASSO_QUERIES:
-        try:
-            resp = session.post(
-                "https://ticketingweb.passo.com.tr/api/passoweb/allevents",
-                json={"query": query, "etkinlikdetay": "true", "LanguageId": 118, "from": 0, "size": 50},
-                headers={"Content-Type": "application/json", "Origin": "https://www.passo.com.tr", "Referer": "https://www.passo.com.tr/"},
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                continue
-            data = resp.json()
-            events = []
-            if isinstance(data, dict):
-                result = data.get("resultObject", data)
-                if isinstance(result, list):
-                    events = result
-                elif isinstance(result, dict):
-                    events = result.get("data", result.get("events", []))
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
 
-            for event in events:
-                name = event.get("name", "").lower()
-                seo_url = event.get("seoUrl", "")
+        for query in PASSO_QUERIES:
+            try:
+                # Arama sayfasına git ve render olmasını bekle
+                page.goto(f"https://www.passo.com.tr/tr/ara?searchQuery={quote_plus(query)}", timeout=45000)
+                try:
+                    # Passo'nun içindeki event kartları gelene kadar bekle (10 saniye max)
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except:
+                    pass
                 
-                # Bilet satışta mı diye kesin kontrol et (Romanya maçı olmalı)
-                is_match = "romanya" in name or "romania" in name or ("türkiye" in name and "milli" in name)
+                # Sayfadaki tüm yazıları çek
+                text = page.inner_text("body").lower()
                 
-                if is_match:
-                    event_name = event.get("name", "Bilinmeyen Etkinlik")
-                    event_id = f"passo:{event_name}"
-                    ticket_url = f"https://www.passo.com.tr/tr/etkinlik/{seo_url}"
+                # Sadece eğer aranılan kelime ("Romanya" vs) eşleşirse ve sayfada "detaylı i̇ncele" veya "satın al" varsa
+                is_match = (
+                    ("romanya" in text or "romania" in text or ("türkiye" in text and "milli" in text))
+                )
+                
+                if is_match and ("bilet" in text or "satın al" in text or "incele" in text):
+                    event_name = "Türkiye - Romanya Maçı (Passo Arama Sonucu)"
+                    event_id = f"passo:{query}"
+                    ticket_url = f"https://www.passo.com.tr/tr/ara?searchQuery={quote_plus(query)}"
                     
                     if event_id not in notified_items:
                         print(f"[{now()}] 🚨 PASSO'DA BİLET BULUNDU! 🚨")
@@ -108,11 +108,13 @@ def check_passo():
                         )
                         notified_items.add(event_id)
                         found_any = True
-        except Exception as e:
-            print(f"[{now()}] ❌ Passo API hatası: {e}")
+            except Exception as e:
+                print(f"[{now()}] ❌ Passo UI hatası: {e}")
+
+        browser.close()
 
     if not found_any:
-        print(f"[{now()}]   Passo API'de henüz bilet satışı yok.")
+        print(f"[{now()}]   Passo'da henüz bilet satışı yok.")
     return found_any
 
 
