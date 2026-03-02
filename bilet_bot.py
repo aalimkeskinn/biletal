@@ -17,7 +17,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8608755861:AAFn25KiynNF7GRsnu
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "1723785769")
 
 # --- Passo API Sorguları ---
-PASSO_QUERIES = ["Romanya", "Turkiye Romanya", "Milli Takim"]
+PASSO_QUERIES = ["Galatasaray"]
 
 # --- Sadece Resmi Satış / Duyuru Kaynakları ---
 OFFICIAL_SOURCES = [
@@ -88,10 +88,8 @@ def check_passo():
                 # Sayfadaki tüm yazıları çek
                 text = page.inner_text("body").lower()
                 
-                # Sadece eğer aranılan kelime ("Romanya" vs) eşleşirse ve sayfada "detaylı i̇ncele" veya "satın al" varsa
-                is_match = (
-                    ("romanya" in text or "romania" in text or ("türkiye" in text and "milli" in text))
-                )
+                # Test için: Galatasaray geçiyorsa kabul et
+                is_match = ("galatasaray" in text or "romanya" in text)
                 
                 if is_match and ("bilet" in text or "satın al" in text or "incele" in text):
                     event_name = "Türkiye - Romanya Maçı (Passo Arama Sonucu)"
@@ -110,6 +108,10 @@ def check_passo():
                         found_any = True
             except Exception as e:
                 print(f"[{now()}] ❌ Passo UI hatası: {e}")
+                # Render'da Playwright çökerse görebilmek için:
+                if "passo_error" not in notified_items:
+                    notify("🛠 BOT HATA VERDİ", f"Render üzerinde tarayıcı başlatılamadı veya hata oluştu:\n\n{str(e)[:500]}")
+                    notified_items.add("passo_error")
 
         browser.close()
 
