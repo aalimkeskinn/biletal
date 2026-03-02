@@ -94,6 +94,10 @@ def check_passo():
 
             total = data.get("totalItemCount", 0)
             print(f"[{now()}]   Sorgu: '{query}' → {total} sonuç bulundu")
+            
+            # DEBUG: Render'da ne gördüğünü anlamak için geçici bildirim
+            if NOT_A_TICKET_BUT_DEBUG_INFO := True:
+                notify("🔍 Tarama Özeti", f"Sorgu: '{query}'\nToplam Sonuç: {total}\nAPI Durumu: 200")
 
             for event in events:
                 if not isinstance(event, dict):
