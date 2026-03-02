@@ -1,6 +1,7 @@
 import threading
 from flask import Flask, jsonify
 import bilet_bot
+import os
 
 app = Flask(__name__)
 
@@ -17,11 +18,10 @@ def start_bot():
     """Bot'u arka plan thread'inde çalıştırır."""
     bilet_bot.bot_loop()
 
-if __name__ == "__main__":
-    # Bot'u background thread olarak başlat
-    bot_thread = threading.Thread(target=start_bot, daemon=True)
-    bot_thread.start()
+# Gunicorn ile çalışırken thread'in başlaması için __main__ dışına alıyoruz
+bot_thread = threading.Thread(target=start_bot, daemon=True)
+bot_thread.start()
 
-    # Flask web sunucusunu başlat (Render bunu bekliyor)
-    port = int(__import__("os").environ.get("PORT", 5000))
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
