@@ -103,10 +103,18 @@ def check_passo():
                 seo_url = event.get("seoUrl", "")
                 event_id_num = event.get("id", "")
                 
-                # Üretim kodu: Romanya, Türkiye veya Milli Takım içerenleri yakala
-                is_match = ("romanya" in name or "romania" in name or "türkiye" in name or "milli" in name)
+                # Gelişmiş Eşleşme: Sorgu kelimelerinden biri isimde veya URL'de geçiyorsa yakala
+                is_match = False
+                for q in PASSO_QUERIES:
+                    if q.lower() in name or q.lower() in seo_url:
+                        is_match = True
+                        break
                 
-                if is_match and ("bilet" in name or "satın" in name or "incele" in name or "i̇ncele" in name or "yakında" in name):
+                # Sadece Romanya istisnası (Her halükarda yakala)
+                if "romanya" in name or "romania" in name:
+                    is_match = True
+
+                if is_match:
                     event_name = event.get("name", "Bilinmeyen Etkinlik")
                     venue = event.get("venueName", "")
                     event_id = f"passo:{event_id_num}:{event_name}"
