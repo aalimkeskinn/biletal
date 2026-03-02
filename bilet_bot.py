@@ -91,7 +91,7 @@ def check_passo():
                 # Test için: Galatasaray geçiyorsa kabul et
                 is_match = ("galatasaray" in text or "romanya" in text)
                 
-                if is_match and ("bilet" in text or "satın al" in text or "incele" in text):
+                if is_match and ("bilet" in text or "satın" in text or "incele" in text or "i̇ncele" in text or "yakında" in text):
                     event_name = "Türkiye - Romanya Maçı (Passo Arama Sonucu)"
                     event_id = f"passo:{query}"
                     ticket_url = f"https://www.passo.com.tr/tr/ara?searchQuery={quote_plus(query)}"
