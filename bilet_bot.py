@@ -15,8 +15,8 @@ from curl_cffi import requests as cf_requests
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8608755861:AAFn25KiynNF7GRsnuczkD0TqHwhbg6XNg0")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "1723785769")
 
-# --- Passo API Sorguları (TEST: Galatasaray) ---
-PASSO_QUERIES = ["Galatasaray"]
+# --- Passo API Sorguları ---
+PASSO_QUERIES = ["Romanya", "Turkiye Romanya", "Milli Takim"]
 
 # --- Sadece Resmi Satış / Duyuru Kaynakları ---
 OFFICIAL_SOURCES = [
@@ -95,10 +95,6 @@ def check_passo():
             total = data.get("totalItemCount", 0)
             print(f"[{now()}]   Sorgu: '{query}' → {total} sonuç bulundu")
             
-            # DEBUG: Render'da ne gördüğünü anlamak için geçici bildirim
-            if NOT_A_TICKET_BUT_DEBUG_INFO := True:
-                notify("🔍 Tarama Özeti", f"Sorgu: '{query}'\nToplam Sonuç: {total}\nAPI Durumu: 200")
-
             for event in events:
                 if not isinstance(event, dict):
                     continue
@@ -107,10 +103,10 @@ def check_passo():
                 seo_url = event.get("seoUrl", "")
                 event_id_num = event.get("id", "")
                 
-                # Test için: Galatasaray geçiyorsa kabul et
-                is_match = ("galatasaray" in name or "romanya" in name or "romania" in name)
+                # Üretim kodu: Sadece Romanya ve Milli Takım içerenleri yakala
+                is_match = ("romanya" in name or "romania" in name or ("türkiye" in name and "milli" in name))
                 
-                if is_match:
+                if is_match and ("bilet" in name or "satın" in name or "incele" in name or "i̇ncele" in name or "yakında" in name):
                     event_name = event.get("name", "Bilinmeyen Etkinlik")
                     venue = event.get("venueName", "")
                     event_id = f"passo:{event_id_num}:{event_name}"
