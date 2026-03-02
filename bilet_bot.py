@@ -2,15 +2,13 @@ import time
 import requests
 from bs4 import BeautifulSoup
 import datetime
-import json
 import os
-from urllib.parse import urlparse, quote_plus
 from curl_cffi import requests as cf_requests
 
 # ============================================================
 #  🇹🇷 Türkiye - Romanya Maç Bileti Takip Botu
 #  26 Mart 2026 | Beşiktaş Park
-#  ☁️  Cloud Version (Telegram Only)
+#  ☁️  Cloud Version (Strict Ticket Finder)
 # ============================================================
 
 # --- Telegram Bot Ayarları ---
@@ -20,33 +18,10 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "1723785769")
 # --- Passo API Sorguları ---
 PASSO_QUERIES = ["Romanya", "Turkiye Romanya", "Milli Takim"]
 
-# --- Google News RSS Sorguları ---
-GOOGLE_NEWS_QUERIES = [
-    "türkiye romanya bilet",
-    "türkiye romanya maç bilet satış",
-    "milli maç bilet passo",
-]
-
-# --- Bing'de Aranacak Sorgular ---
-BING_QUERIES = [
-    "türkiye romanya milli maç bilet satış 2026",
-    "türkiye romanya bilet al passo",
-    "turkey romania ticket sale beşiktaş park",
-]
-
-# --- Doğrudan Kontrol Edilecek Sabit Siteler ---
-STATIC_SITES = [
-    {"name": "TFF Milli Takımlar", "url": "https://www.tff.org/default.aspx?pageID=202"},
-    {"name": "TFF Ana Sayfa", "url": "https://www.tff.org/default.aspx?pageID=285"},
-    {"name": "NTV Spor Futbol", "url": "https://www.ntvspor.net/futbol"},
-    {"name": "Fanatik Milli Takım", "url": "https://www.fanatik.com.tr/milli-takim"},
-    {"name": "Sabah Spor", "url": "https://www.sabah.com.tr/spor/futbol"},
-    {"name": "Hürriyet Spor", "url": "https://www.hurriyet.com.tr/sporarena/"},
-]
-
-TICKET_KEYWORDS = [
-    "bilet", "satış", "satışa", "passo", "ticket",
-    "biletleri", "biletler", "satın al",
+# --- Sadece Resmi Satış / Duyuru Kaynakları ---
+OFFICIAL_SOURCES = [
+    {"name": "TFF Bilet Duyuruları", "url": "https://www.tff.org/default.aspx?pageID=202"},
+    {"name": "Passo Futbol Kategorisi", "url": "https://www.passo.com.tr/tr/kategori/futbol-mac-biletleri/4615"},
 ]
 
 HEADERS = {
@@ -85,10 +60,11 @@ def notify(title, text):
     print(f"[{now()}] 📩 Bildirim: {title} - {text[:60]}")
 
 
-# ── PASSO ──
+# ── PASSO API (DOĞRUDAN BİLET SATIŞ EKRANI) ──
 def check_passo():
+    """Passo API üzerinden anlık satışta olan etkinlikleri kontrol eder."""
     found_any = False
-    print(f"[{now()}] 🎫 Passo kontrol ediliyor...")
+    print(f"[{now()}] 🎫 Passo API (Direkt Satış) kontrol ediliyor...")
     session = cf_requests.Session(impersonate="chrome120")
 
     for query in PASSO_QUERIES:
@@ -113,121 +89,84 @@ def check_passo():
             for event in events:
                 name = event.get("name", "").lower()
                 seo_url = event.get("seoUrl", "")
-                is_match = "romanya" in name or "romania" in name
+                
+                # Bilet satışta mı diye kesin kontrol et (Romanya maçı olmalı)
+                is_match = "romanya" in name or "romania" in name or ("türkiye" in name and "milli" in name)
+                
                 if is_match:
-                    event_name = event.get("name", "?")
+                    event_name = event.get("name", "Bilinmeyen Etkinlik")
                     event_id = f"passo:{event_name}"
                     ticket_url = f"https://www.passo.com.tr/tr/etkinlik/{seo_url}"
+                    
                     if event_id not in notified_items:
-                        print(f"[{now()}] 🚨🚨🚨 PASSO'DA BİLET BULUNDU! 🚨🚨🚨")
-                        notify("🎫 PASSO BİLET BULUNDU!", f"{event_name}\n🔗 {ticket_url}")
+                        print(f"[{now()}] 🚨 PASSO'DA BİLET BULUNDU! 🚨")
+                        notify(
+                            "🚨 BİLET SATIŞINI BULDUM! 🚨", 
+                            f"Passo'da bilet satışa çıktı. Hemen aşağıdaki linkten alabilirsin:\n\n"
+                            f"📌 {event_name}\n"
+                            f"🔗 {ticket_url}"
+                        )
                         notified_items.add(event_id)
                         found_any = True
         except Exception as e:
-            print(f"[{now()}] ❌ Passo hatası: {e}")
+            print(f"[{now()}] ❌ Passo API hatası: {e}")
 
     if not found_any:
-        print(f"[{now()}]   Passo'da henüz bilet yok.")
+        print(f"[{now()}]   Passo API'de henüz bilet satışı yok.")
     return found_any
 
 
-# ── GOOGLE NEWS ──
-def check_google_news():
+# ── RESMİ KAYNAKLAR (TFF DUYURULARI) ──
+def check_official_sources():
+    """Sadece resmi sitelerde (örneğin TFF) kesin satış haberlerini arar."""
     found_any = False
-    print(f"[{now()}] 📰 Google News RSS taranıyor...")
-    for query in GOOGLE_NEWS_QUERIES:
+    print(f"[{now()}] 📡 TFF ve Passo Resmi sayfalar kontrol ediliyor...")
+    
+    # Sadece kesin haberler için zorunlu kelimeler
+    REQUIRED_KEYWORDS = ["romanya", "bilet", "satışa çıktı", "satışta"]
+
+    for site in OFFICIAL_SOURCES:
         try:
-            encoded = quote_plus(query)
-            rss_url = f"https://news.google.com/rss/search?q={encoded}&hl=tr&gl=TR&ceid=TR:tr"
-            resp = requests.get(rss_url, headers=HEADERS, timeout=15)
+            # Passo'nun Cloudflare engelini aşması için cf_requests kullanıyoruz
+            if "passo.com" in site["url"]:
+                resp = cf_requests.get(site["url"], impersonate="chrome120", timeout=15)
+            else:
+                resp = requests.get(site["url"], headers=HEADERS, timeout=15)
+                
             if resp.status_code != 200:
                 continue
-            soup = BeautifulSoup(resp.text, "xml")
-            for item in soup.find_all("item"):
-                title = (item.find("title").text if item.find("title") else "").lower()
-                has_romania = "romanya" in title or "romania" in title
-                has_ticket = any(kw in title for kw in TICKET_KEYWORDS)
-                if has_romania and has_ticket:
-                    original_title = item.find("title").text
-                    if original_title not in notified_items:
-                        notify("🎫 Bilet Haberi!", original_title[:150])
-                        notified_items.add(original_title)
-                        found_any = True
-        except Exception as e:
-            print(f"[{now()}] ❌ Google News hatası: {e}")
-        time.sleep(0.5)
-    if not found_any:
-        print(f"[{now()}]   Google News'te yeni bilet duyurusu yok.")
-    return found_any
-
-
-# ── BING ──
-def check_bing():
-    found_any = False
-    all_urls = set()
-    print(f"[{now()}] 🔍 Bing aramaları yapılıyor...")
-    for query in BING_QUERIES:
-        try:
-            resp = requests.get("https://www.bing.com/search", params={"q": query}, headers=HEADERS, timeout=15)
-            if resp.status_code != 200:
-                continue
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for r in soup.find_all("li", class_="b_algo"):
-                cite = r.find("cite")
-                if cite:
-                    raw = cite.get_text().strip()
-                    if raw.startswith("http"):
-                        all_urls.add(raw.split(" ")[0])
-        except Exception:
-            pass
-        time.sleep(1)
-
-    for url in all_urls:
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=10, allow_redirects=True)
-            if resp.status_code != 200:
-                continue
-            resp.encoding = resp.apparent_encoding
+                
+            if hasattr(resp, "apparent_encoding") and resp.apparent_encoding:
+                resp.encoding = resp.apparent_encoding
+                
             page_text = resp.text.lower()
-            has_romania = "romanya" in page_text or "romania" in page_text
-            has_ticket = any(kw in page_text for kw in TICKET_KEYWORDS)
-            if has_romania and has_ticket:
-                domain = urlparse(url).netloc
-                page_id = f"bing:{domain}"
-                if page_id not in notified_items:
-                    notify("🎫 Bilet Haberi!", f"Kaynak: {domain}")
-                    notified_items.add(page_id)
-                    found_any = True
-        except Exception:
-            pass
-    if not found_any:
-        print(f"[{now()}]   Bing'de bilet duyurusu yok.")
-    return found_any
+            
+            # Tüm kelimeler aynı sayfada/haberde var mı?
+            # Passo arama sayfasında sadece "romanya" geçmesi yeterli (çünkü direkt bilet sayfası)
+            if "passo.com" in site["url"]:
+                has_match = ("romanya" in page_text) and ("cloudflare" not in page_text)
+            else:
+                has_match = ("romanya" in page_text) and ("bilet" in page_text) and (
+                    "satışa çıktı" in page_text or "genel satış" in page_text or "satışa sunuldu" in page_text
+                )
 
-
-# ── SABİT SİTELER ──
-def check_static_sites():
-    found_any = False
-    print(f"[{now()}] 📡 Sabit siteler kontrol ediliyor...")
-    for site in STATIC_SITES:
-        try:
-            resp = requests.get(site["url"], headers=HEADERS, timeout=15)
-            if resp.status_code != 200:
-                continue
-            resp.encoding = resp.apparent_encoding
-            page_text = resp.text.lower()
-            has_romania = "romanya" in page_text or "romania" in page_text
-            has_ticket = any(kw in page_text for kw in TICKET_KEYWORDS)
-            if has_romania and has_ticket:
-                site_id = f"static:{site['name']}"
+            if has_match:
+                site_id = f"official:{site['name']}"
                 if site_id not in notified_items:
-                    notify("🎫 Bilet Haberi!", f"{site['name']} - bilet haberi!")
+                    print(f"[{now()}] 🚨 RESMİ DUYURU BULDUM! → {site['name']}")
+                    notify(
+                        "🚨 BİLET SATIŞ DUYURUSU! 🚨", 
+                        f"{site['name']} üzerinde biletlerin satışa çıktığına dair resmi duyuru/link bulundu!\n\n"
+                        f"Hemen kontrol et:\n"
+                        f"🔗 {site['url']}"
+                    )
                     notified_items.add(site_id)
                     found_any = True
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[{now()}] ❌ Hata ({site['name']}): {e}")
+
     if not found_any:
-        print(f"[{now()}]   Sabit sitelerde bilet duyurusu yok.")
+        print(f"[{now()}]   Resmi duyuru sitelerinde bilet satışı yok.")
     return found_any
 
 
@@ -236,37 +175,36 @@ def run_scan():
     """Tek bir tarama döngüsü çalıştırır."""
     global last_check_time
     print(f"\n{'─' * 45}")
-    print(f"[{now()}] ⏰ Tarama başlıyor...")
+    print(f"[{now()}] ⏰ Tarama başlıyor (Sadece Kesin Biletler)...")
     print(f"{'─' * 45}")
 
     found_passo = check_passo()
-    found_news = check_google_news()
-    found_bing = check_bing()
-    found_static = check_static_sites()
+    found_official = check_official_sources()
 
     last_check_time = datetime.datetime.now().strftime("%H:%M:%S")
 
-    if found_passo or found_news or found_bing or found_static:
-        print(f"[{now()}] ✅ Bilet haberi tespit edildi!")
+    if found_passo or found_official:
+        print(f"[{now()}] ✅ BİLET SATIŞI TESPİT EDİLDİ!")
     else:
-        print(f"[{now()}] 😴 Bilet duyurusu bulunamadı.")
+        print(f"[{now()}] 😴 Bilet duyurusu bulunamadı, bekleniyor...")
 
-    return found_passo or found_news or found_bing or found_static
+    return found_passo or found_official
 
 
 def bot_loop():
     """Sürekli çalışan bot döngüsü."""
     print("=" * 45)
-    print("  🇹🇷 Bilet Botu Başlatıldı (Cloud)")
+    print("  🇹🇷 Katı Bilet Botu Başlatıldı (Cloud)")
     print("=" * 45)
 
-    notify("Bilet Botu Aktif ✅", "Bot bulutta çalışmaya başladı! 3 dk aralıkla tarama yapılacak.")
+    notify("Bilet Botu Güncellendi ✅", "Haber siteleri (Google/Bing) KALDIRILDI. Artık SADECE Passo'da bilet satışa çıktığında veya TFF remsi duyuru yaptığında direkt bilet linkini alacaksınız.")
 
     check_interval = 3 * 60
 
     while True:
         found = run_scan()
         if found:
-            time.sleep(60)
+            # Bulursa sürekli mesaj atmasın diye 5 dakika bekle
+            time.sleep(300)
         else:
             time.sleep(check_interval)
