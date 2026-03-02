@@ -16,7 +16,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8608755861:AAFn25KiynNF7GRsnu
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "1723785769")
 
 # --- Passo API Sorguları ---
-PASSO_QUERIES = ["Romanya", "Turkiye Romanya", "Milli Takim"]
+PASSO_QUERIES = ["romanya", "türkiye", "milli takım"]
 
 # --- Sadece Resmi Satış / Duyuru Kaynakları ---
 OFFICIAL_SOURCES = [
@@ -103,8 +103,8 @@ def check_passo():
                 seo_url = event.get("seoUrl", "")
                 event_id_num = event.get("id", "")
                 
-                # Üretim kodu: Sadece Romanya ve Milli Takım içerenleri yakala
-                is_match = ("romanya" in name or "romania" in name or ("türkiye" in name and "milli" in name))
+                # Üretim kodu: Romanya, Türkiye veya Milli Takım içerenleri yakala
+                is_match = ("romanya" in name or "romania" in name or "türkiye" in name or "milli" in name)
                 
                 if is_match and ("bilet" in name or "satın" in name or "incele" in name or "i̇ncele" in name or "yakında" in name):
                     event_name = event.get("name", "Bilinmeyen Etkinlik")
